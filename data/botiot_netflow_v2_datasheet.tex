@@ -1,0 +1,181 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[margin=0.65in]{geometry}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{ragged2e}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{microtype}
+\usepackage{amsmath}
+
+\definecolor{primary}{RGB}{26, 115, 232}
+\definecolor{darkgray}{RGB}{60, 64, 67}
+\definecolor{lightbg}{RGB}{248, 249, 250}
+\definecolor{bordercolor}{RGB}{218, 220, 224}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=primary,
+    urlcolor=primary,
+    citecolor=primary
+}
+
+\renewcommand{\arraystretch}{1.18}
+
+\begin{document}
+
+\begin{center}
+    {\LARGE \textbf{\textcolor{primary}{Bot-IoT NetFlow v2 Benchmark Datasheet}}}\\[4pt]
+    {\large \textbf{Dataset Provenance, Feature Architecture, and Edge Detection Specifications}}\\[3pt]
+    {\footnotesize DISAL Research Project, Bempong and Brown (2026)}
+\end{center}
+
+\vspace{-4pt}
+\hrule height 1pt
+\vspace{8pt}
+
+\section*{1. Benchmark Provenance and Ingestion}
+
+The Bot-IoT NetFlow v2 benchmark represents a standardized, flow-aggregated intrusion detection dataset developed by UNSW Canberra Cyber (Sarhan et al., 2021). The raw captures were generated in a simulated Internet of Things network environment incorporating smart home devices, cloud gateways, and node sensors under diverse cyberattacks, including volumetric distributed denial of service (DDoS), denial of service (DoS), reconnaissance, and data theft.
+
+\subsection*{1.1 Partitioning and Class Imbalance}
+The experimental partition standardizes on a 400,000-sample slice matching the formal benchmark protocol:
+\begin{itemize}
+    \setlength\itemsep{0em}
+    \item \textbf{Total Flow Records}: 400,000 records partitioned into 70\% training (280,000), 10\% validation (40,000), and 20\% test (80,000; exactly 79,889 valid evaluated records).
+    \item \textbf{Extreme Class Imbalance}: Severe 278:1 attack-to-normal ratio in the raw partition (99.64\% attack traffic vs. 0.36\% benign traffic). The test split contains 79,600 attack samples and only 289 normal samples.
+    \item \textbf{Baseline Collapse Context}: Standard from-scratch gradient descent collapses to the majority class under this skew, resulting in 0.0\% normal traffic recognition (100\% false alarm rate). The Transfer Rescue model resolves this by transferring spatial representations from CICIoT2023, restoring normal recognition to 59.5\% while maintaining 99.98\% attack recall.
+\end{itemize}
+
+\subsection*{1.2 Zero-Leakage Preprocessing Protocol}
+\begin{itemize}
+    \setlength\itemsep{0em}
+    \item \textbf{Identity Leakage Prevention}: Raw network IP addresses (\texttt{IPV4\_SRC\_ADDR} and \texttt{IPV4\_DST\_ADDR}) are removed prior to splitting. This prevents deep learning models from memorizing specific host identity subnets rather than learning generalized flow behavior.
+    \item \textbf{Strict Training-Set Scaling}: Outlier-robust scaling is executed using a two-stage pipeline: \texttt{RobustScaler} followed by \texttt{MinMaxScaler}. Both scalers are fitted strictly on the training partition ($X_{\text{train}}$) and applied via transform-only to validation and test sets.
+    \item \textbf{Precision Downcasting}: All numerical feature values are cast to 32-bit floats (\texttt{float32}) and target labels to 8-bit integers (\texttt{int8}) to prevent heap memory exhaustion and optimize CPU execution on edge devices.
+\end{itemize}
+
+\section*{2. The 41 NetFlow Feature Specifications}
+
+The model consumes 41 standardized bidirectional flow features extracted from network packet exchanges. The catalog below provides formal NetFlow v2 definitions and intrusion detection diagnostic significance.
+
+\vspace{4pt}
+\noindent
+\small
+\begin{tabularx}{\linewidth}{@{} l p{0.36\linewidth} >{\RaggedRight\arraybackslash}X @{}}
+\toprule
+\textbf{Feature Name} & \textbf{NetFlow v2 Definition} & \textbf{Intrusion Detection Diagnostic Value} \\
+\midrule
+\multicolumn{3}{@{}l}{\textbf{Group 1: Transport and Application Layer Identifiers}} \\
+\texttt{L4\_SRC\_PORT} & Transport layer source port number & Ephemeral client port range versus fixed scanning source \\
+\texttt{L4\_DST\_PORT} & Transport layer destination service port & Targeted service identifier (e.g., port 80 HTTP, 53 DNS) \\
+\texttt{PROTOCOL} & Internet Protocol suite number & 6 for TCP, 17 for UDP, 1 for ICMP message control \\
+\texttt{L7\_PROTO} & Detected application layer protocol code & Categorizes application service protocol running on top of flow \\
+\midrule
+\multicolumn{3}{@{}l}{\textbf{Group 2: Traffic Volume and Packet Counts}} \\
+\texttt{IN\_BYTES} & Incoming volume of bytes sent from source & Volumetric flood magnitude from attacker to victim \\
+\texttt{IN\_PKTS} & Incoming packet count from source to destination & Packet burst density indicative of SYN or UDP flooding \\
+\texttt{OUT\_BYTES} & Outgoing volume of bytes returned by responder & Distinguishes bidirectional exchanges from dropped packets \\
+\texttt{OUT\_PKTS} & Outgoing packet count returned by destination & Zero or low counts signal unacknowledged spoofed requests \\
+\midrule
+\multicolumn{3}{@{}l}{\textbf{Group 3: Cumulative TCP Control Flags}} \\
+\texttt{TCP\_FLAGS} & Bitwise OR of all TCP flags observed in flow & Overall connection state signature across conversation \\
+\texttt{CLIENT\_TCP\_FLAGS} & Cumulative TCP flags asserted by flow initiator & Detects client-driven SYN scans, stealth FIN, or RST sweeps \\
+\texttt{SERVER\_TCP\_FLAGS} & Cumulative TCP flags asserted by responder & Identifies SYN-ACK responses, server resets, or silent drops \\
+\midrule
+\multicolumn{3}{@{}l}{\textbf{Group 4: Flow Timing and Durations}} \\
+\texttt{FLOW\_DURATION\_MILLISECONDS} & Total active conversation duration (ms) & Ultra-short flows denote port scans; long flows denote C2 links \\
+\texttt{DURATION\_IN} & Active client transmission duration (ms) & Transmission duration for incoming request payload \\
+\texttt{DURATION\_OUT} & Active server response duration (ms) & Response latency and completion profile of remote service \\
+\bottomrule
+\end{tabularx}
+
+\newpage
+
+\noindent
+\small
+\begin{tabularx}{\linewidth}{@{} l p{0.36\linewidth} >{\RaggedRight\arraybackslash}X @{}}
+\toprule
+\textbf{Feature Name} & \textbf{NetFlow v2 Definition} & \textbf{Intrusion Detection Diagnostic Value} \\
+\midrule
+\multicolumn{3}{@{}l}{\textbf{Group 5: Packet Length and Hop Limit (TTL)}} \\
+\texttt{MIN\_TTL} & Minimum Time to Live recorded in flow & Hop count distance to source; identifies spoofed routing \\
+\texttt{MAX\_TTL} & Maximum Time to Live recorded in flow & Variance between min and max TTL indicates source hopping \\
+\texttt{LONGEST\_FLOW\_PKT} & Maximum packet length observed in bytes & Detects oversized payloads used in buffer exploitation \\
+\texttt{SHORTEST\_FLOW\_PKT} & Minimum packet length observed in bytes & Tiny packet dominance signifies control flooding or ping sweeps \\
+\texttt{MIN\_IP\_PKT\_LEN} & Minimum IP packet header length & Header anomalies, malformed packets, and option padding \\
+\texttt{MAX\_IP\_PKT\_LEN} & Maximum IP packet header length & Identifies maximum transmission unit (MTU) saturation \\
+\midrule
+\multicolumn{3}{@{}l}{\textbf{Group 6: Rate and Throughput Dynamics}} \\
+\texttt{SRC\_TO\_DST\_SECOND\_BYTES} & Forward transfer speed (bytes per second) & Instantaneous upload velocity from source entity \\
+\texttt{DST\_TO\_SRC\_SECOND\_BYTES} & Reverse transfer speed (bytes per second) & Instantaneous download velocity returned by server \\
+\texttt{SRC\_TO\_DST\_AVG\_THROUGHPUT} & Average forward throughput (bits per second) & Distinguishes high-speed volumetric floods from trickle scans \\
+\texttt{DST\_TO\_SRC\_AVG\_THROUGHPUT} & Average reverse throughput (bits per second) & Reflects server data extraction or service denial saturation \\
+\midrule
+\multicolumn{3}{@{}l}{\textbf{Group 7: Retransmission Reliability Metrics}} \\
+\texttt{RETRANSMITTED\_IN\_BYTES} & Incoming retransmitted byte volume & High volume indicates severe network congestion or SYN drops \\
+\texttt{RETRANSMITTED\_IN\_PKTS} & Incoming retransmitted packet count & Packet loss rate caused by saturated target buffers \\
+\texttt{RETRANSMITTED\_OUT\_BYTES} & Outgoing retransmitted byte volume & Unanswered server retries caused by victim exhaustion \\
+\texttt{RETRANSMITTED\_OUT\_PKTS} & Outgoing retransmitted packet count & Quantifies downstream packet loss on return path \\
+\midrule
+\multicolumn{3}{@{}l}{\textbf{Group 8: Packet Size Distribution Bins}} \\
+\texttt{NUM\_PKTS\_UP\_TO\_128\_BYTES} & Packet count in length bin $\le 128$ bytes & High ratio denotes TCP handshake scans or ICMP probes \\
+\texttt{NUM\_PKTS\_128\_TO\_256\_BYTES} & Packet count in length bin $129$ to $256$ bytes & Small message protocols and command-and-control beacons \\
+\texttt{NUM\_PKTS\_256\_TO\_512\_BYTES} & Packet count in length bin $257$ to $512$ bytes & Medium-size queries and encrypted TLS client handshakes \\
+\texttt{NUM\_PKTS\_512\_TO\_1024\_BYTES} & Packet count in length bin $513$ to $1024$ bytes & Intermediate data payloads and DNS response amplification \\
+\texttt{NUM\_PKTS\_1024\_TO\_1514\_BYTES} & Packet count approaching standard MTU limit & Full-frame data streaming, large downloads, or exfiltration \\
+\bottomrule
+\end{tabularx}
+
+\newpage
+
+\noindent
+\small
+\begin{tabularx}{\linewidth}{@{} l p{0.36\linewidth} >{\RaggedRight\arraybackslash}X @{}}
+\toprule
+\textbf{Feature Name} & \textbf{NetFlow v2 Definition} & \textbf{Intrusion Detection Diagnostic Value} \\
+\midrule
+\multicolumn{3}{@{}l}{\textbf{Group 9: Window and Buffer Dynamics}} \\
+\texttt{TCP\_WIN\_MAX\_IN} & Maximum advertised client receive window & Advertised buffer capacity of the connection initiator \\
+\texttt{TCP\_WIN\_MAX\_OUT} & Maximum advertised server receive window & Zero or decaying window advertisements signal target exhaustion \\
+\midrule
+\multicolumn{3}{@{}l}{\textbf{Group 10: Application and Signaling Protocols}} \\
+\texttt{ICMP\_TYPE} & Control message type field (RFC 792) & 8 for echo request, 0 for reply, 3 for unreachable \\
+\texttt{ICMP\_IPV4\_TYPE} & Sub-classification code for IPv4 ICMP & Identifies port unreachable, fragmentation required, or redirect \\
+\texttt{DNS\_QUERY\_ID} & DNS transaction identifier number & Zero denotes non-DNS flows; random IDs denote normal queries \\
+\texttt{DNS\_QUERY\_TYPE} & DNS record type code requested & 1 for IPv4 A, 28 for AAAA, 15 for MX, 255 for ANY amplification \\
+\texttt{DNS\_TTL\_ANSWER} & Cached time to live returned in DNS response & Short TTLs denote fast-flux malicious botnet infrastructure \\
+\texttt{FTP\_COMMAND\_RET\_CODE} & 3-digit numeric FTP server return code & 220 service ready, 230 login successful, 530 access denied \\
+\bottomrule
+\end{tabularx}
+
+\vspace{10pt}
+\section*{3. Edge Detector Architectural Profile}
+
+The deployed detector couples a hierarchical 1D Swin Transformer backbone with an LSTM temporal sequence classifier to deliver real-time verdicts on resource-constrained hardware.
+
+\vspace{4pt}
+\noindent
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{} l r >{\RaggedRight\arraybackslash}X @{}}
+\toprule
+\textbf{Metric / Parameter} & \textbf{Value} & \textbf{Operational Significance} \\
+\midrule
+Total Model Parameters & 1,038,383 & Exact match to Bempong and Brown (2026) paper target \\
+Trainable Parameters (TL) & 79,301 & Fine-tuned temporal head (92.3\% parameter freeze ratio) \\
+Full Precision (FP32) Disk Size & 4.03 MB & Standard PyTorch weights state dictionary \\
+Quantized (INT8) Disk Size & 1.16 MB & 3.47x compression ratio for resource-constrained gateways \\
+Attack Detection Recall & 99.98\% & Only 14 missed attacks out of 79,600 test samples \\
+Overall Accuracy & 99.84\% & Validated on Bot-IoT NetFlow v2 test split \\
+Inference Latency (INT8) & $\approx 85$ ms & 32-record batch execution on edge CPU hardware \\
+Zero Gradient Overhead & Verified & Evaluation mode with torch.no\_grad() \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\vspace{8pt}
+\noindent
+{\footnotesize \textbf{Citation}: Bempong, Y., and Brown, R. (2026). \textit{A Viable Hybrid Swin-LSTM Intrusion Detection Architecture for Resource-Constrained IoT Edge Gateways}. DISAL Final Year Engineering Project.}
+
+\end{document}

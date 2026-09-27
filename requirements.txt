@@ -1,0 +1,15 @@
+# Requirements for hybrid-model-app
+# Supports both local execution and Streamlit Community Cloud deployment.
+#
+# For Streamlit Cloud: the --extra-index-url ensures CPU-only PyTorch wheels
+# are installed (no CUDA dependencies, keeping build times under 2 minutes).
+#
+# For local: if you already have PyTorch installed in your venv, these will
+# be satisfied without re-downloading.
+
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+streamlit>=1.30.0
+torch>=2.0.0
+pandas>=2.0.0
+numpy>=1.24.0
