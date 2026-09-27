@@ -230,6 +230,7 @@ AVAILABLE_DETECTORS = {
         "int8_size_mb": 1.16,
         "default_benchmark_batch": "data/botiot_benchmark_batch.csv",
         "default_balanced_batch": "data/botiot_demo_batch.csv",
+        "packaged_test_path": str(APP_DIR / "data" / "botiot_test_slice.csv"),
         "full_test_path": str(PROJECT_ROOT / "data" / "preprocessed" / "botiot" / "binary" / "test.csv"),
         "sample_normal": "data/botiot_sample_normal.csv",
         "sample_attack": "data/botiot_sample_attack.csv",
@@ -292,6 +293,7 @@ AVAILABLE_DETECTORS = {
         "int8_size_mb": 1.15,
         "default_benchmark_batch": "data/botiot_5pct_demo_batch.csv",
         "default_balanced_batch": "data/botiot_5pct_demo_batch.csv",
+        "packaged_test_path": str(APP_DIR / "data" / "botiot_5pct_test_slice.csv"),
         "full_test_path": str(PROJECT_ROOT / "data" / "preprocessed" / "botiot_5pct_official" / "test.csv"),
         "sample_normal": "data/botiot_5pct_sample_normal.csv",
         "sample_attack": "data/botiot_5pct_sample_attack.csv",
@@ -896,9 +898,15 @@ with tab_batch:
                     st.rerun()
 
     elif source_mode == "Full Evaluation Test Partition":
-        packaged_path = Path(detector_info.get("packaged_test_path", ""))
-        full_test_file = packaged_path if packaged_path.exists() else Path(detector_info["full_test_path"])
-        if full_test_file.exists():
+        packaged_str = detector_info.get("packaged_test_path")
+        packaged_path = Path(packaged_str) if (packaged_str and Path(packaged_str).is_file()) else None
+
+        disk_str = detector_info.get("full_test_path")
+        disk_path = Path(disk_str) if (disk_str and Path(disk_str).is_file()) else None
+
+        full_test_file = packaged_path or disk_path
+
+        if full_test_file is not None and full_test_file.is_file():
             c_f1, c_f2 = st.columns([3, 1])
             with c_f1:
                 slice_choice = st.selectbox(
@@ -927,7 +935,7 @@ with tab_batch:
                     }
                     key_val = slice_choice.split()[0]
                     nrows = slice_map.get(key_val, 1000)
-                    with st.spinner("Ingesting benchmark partition from disk..."):
+                    with st.spinner(f"Ingesting benchmark partition from {full_test_file.name}..."):
                         loaded_df = pd.read_csv(full_test_file, nrows=nrows)
                         if "multi_label" in loaded_df.columns:
                             loaded_df = loaded_df.drop(columns=["multi_label"])
@@ -935,12 +943,15 @@ with tab_batch:
                         if t_col and t_col != "target":
                             loaded_df = loaded_df.rename(columns={t_col: "target"})
                         st.session_state["batch_df"] = loaded_df
-                        st.session_state["batch_name"] = f"Full Test Partition: {full_test_file.name} ({len(loaded_df):,} flows)"
+                        st.session_state["batch_name"] = f"Test Partition: {full_test_file.name} ({len(loaded_df):,} flows)"
                         st.session_state["batch_results"] = None
                         st.session_state["batch_summary"] = None
                         st.rerun()
         else:
-            st.warning(f"Full test partition file not found at: {full_test_file}")
+            st.info(
+                f"The complete {detector_info['target_dataset']} benchmark partition file is not packaged in this deployment directory. "
+                "Please select 'Pre-Packaged Demonstration Batches' above to evaluate this detector, or upload a custom CSV."
+            )
 
     else:
         uploaded_file = st.file_uploader(
